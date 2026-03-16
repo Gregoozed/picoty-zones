@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  // Autoriser l'import de gros fichiers JSON (GeoJSON)
+  base: process.env.VITE_BASE_PATH || '/',
   json: {
     stringify: false,
   },
