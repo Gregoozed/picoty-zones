@@ -1,0 +1,13 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Fix z-index pour que le panneau de filtres passe au-dessus de la carte */
+.leaflet-container {
+  z-index: 0;
+}
