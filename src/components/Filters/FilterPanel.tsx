@@ -21,8 +21,8 @@ interface FilterPanelProps {
   departements: string[];
   selectedDepartements: string[];
   onDepartementsChange: (depts: string[]) => void;
-  viewMode: 'departement' | 'region';
-  onViewModeChange: (mode: 'departement' | 'region') => void;
+  viewMode: 'departement' | 'region' | 'commune';
+  onViewModeChange: (mode: 'departement' | 'region' | 'commune') => void;
 }
 
 export default function FilterPanel({

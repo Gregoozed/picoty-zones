@@ -6,7 +6,7 @@ import { getFilialeColor } from '../../utils/colors';
 interface MapLegendProps {
   aggregations: DepartmentAggregation[] | RegionAggregation[];
   product: ProductType;
-  viewMode?: 'departement' | 'region';
+  viewMode?: 'departement' | 'region' | 'commune';
 }
 
 export default function MapLegend({ aggregations, product, viewMode = 'departement' }: MapLegendProps) {

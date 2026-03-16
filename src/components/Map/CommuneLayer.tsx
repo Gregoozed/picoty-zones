@@ -6,7 +6,7 @@ import { PRODUCT_LABELS } from '../../types';
 import { getFilialeColor } from '../../utils/colors';
 import communeCoords from '../../data/communes-geo.json';
 
-const coords = communeCoords as Record<string, [number, number]>;
+const coords = communeCoords as unknown as Record<string, [number, number]>;
 
 interface CommuneLayerProps {
   communes: CommuneData[];
@@ -56,7 +56,6 @@ class SpatialGrid {
     let best: RenderPoint | null = null;
     let bestDist = maxDist * maxDist;
 
-    // Chercher dans les 9 cellules adjacentes
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
         const cell = this.cells.get(`${cx + dx},${cy + dy}`);
@@ -74,10 +73,46 @@ class SpatialGrid {
   }
 }
 
+/** Convex hull — Andrew's monotone chain, O(n log n) */
+function convexHull(pts: { lat: number; lng: number }[]): { lat: number; lng: number }[] {
+  if (pts.length < 3) return [...pts];
+
+  const sorted = [...pts].sort((a, b) => a.lng - b.lng || a.lat - b.lat);
+
+  const cross = (o: { lat: number; lng: number }, a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
+    (a.lng - o.lng) * (b.lat - o.lat) - (a.lat - o.lat) * (b.lng - o.lng);
+
+  // Lower hull
+  const lower: { lat: number; lng: number }[] = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+
+  // Upper hull
+  const upper: { lat: number; lng: number }[] = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+
+  // Remove last point of each half (duplicate of the other)
+  lower.pop();
+  upper.pop();
+
+  return lower.concat(upper);
+}
+
 /**
  * Couche Canvas haute performance pour afficher les communes.
- * - Un seul repaint canvas pour tous les points (pas d'objets Leaflet individuels)
- * - Index spatial pour la détection au survol (tooltip lazy)
+ * - Points colorés par filiale
+ * - Enveloppes convexes pour délimiter les zones de chaque filiale
+ * - Index spatial pour tooltip au survol
  */
 export default function CommuneLayer({
   communes,
@@ -116,6 +151,24 @@ export default function CommuneLayer({
     return result;
   }, [communes, product, selectedFiliales, selectedDepartements]);
 
+  // Pré-calculer les enveloppes convexes par filiale
+  const hulls = useMemo(() => {
+    const byFiliale = new Map<string, { lat: number; lng: number; color: string }[]>();
+    for (const p of points) {
+      const arr = byFiliale.get(p.filiale);
+      if (arr) arr.push(p);
+      else byFiliale.set(p.filiale, [{ lat: p.lat, lng: p.lng, color: p.color }]);
+    }
+
+    const result: { color: string; hull: { lat: number; lng: number }[] }[] = [];
+    for (const [, pts] of byFiliale) {
+      if (pts.length < 3) continue;
+      const hull = convexHull(pts);
+      result.push({ color: pts[0].color, hull });
+    }
+    return result;
+  }, [points]);
+
   useEffect(() => {
     // Nettoyer la couche précédente
     if (canvasLayerRef.current) {
@@ -144,7 +197,7 @@ export default function CommuneLayer({
         canvas.style.position = 'absolute';
         canvas.style.top = '0';
         canvas.style.left = '0';
-        canvas.style.pointerEvents = 'none'; // Le tooltip est géré via l'event mousemove sur la map
+        canvas.style.pointerEvents = 'none';
         this._canvas = canvas;
 
         const pane = m.getPane('overlayPane');
@@ -184,14 +237,38 @@ export default function CommuneLayer({
 
         const bounds = m.getBounds();
         const zoom = m.getZoom();
-        // Rayon adaptatif selon le zoom
-        const radius = zoom >= 11 ? 5 : zoom >= 9 ? 4 : zoom >= 7 ? 3 : 2;
 
-        // Grouper par couleur pour minimiser les changements de style
+        // 1) Dessiner les enveloppes convexes (zones) en arrière-plan
+        for (const { color, hull } of hulls) {
+          if (hull.length < 3) continue;
+
+          const pixels = hull.map(p => m.latLngToContainerPoint([p.lat, p.lng]));
+
+          // Remplissage semi-transparent
+          ctx.beginPath();
+          ctx.moveTo(pixels[0].x, pixels[0].y);
+          for (let i = 1; i < pixels.length; i++) {
+            ctx.lineTo(pixels[i].x, pixels[i].y);
+          }
+          ctx.closePath();
+          ctx.fillStyle = color;
+          ctx.globalAlpha = 0.08;
+          ctx.fill();
+
+          // Bordure
+          ctx.strokeStyle = color;
+          ctx.globalAlpha = 0.5;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([6, 4]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        // 2) Dessiner les points par-dessus
+        const radius = zoom >= 11 ? 5 : zoom >= 9 ? 4 : zoom >= 7 ? 3 : 2;
         const byColor = new Map<string, { x: number; y: number }[]>();
 
         for (const p of points) {
-          // Viewport culling
           if (p.lat < bounds.getSouth() || p.lat > bounds.getNorth()) continue;
           if (p.lng < bounds.getWest() || p.lng > bounds.getEast()) continue;
 
@@ -201,7 +278,6 @@ export default function CommuneLayer({
           else byColor.set(p.color, [{ x: pixel.x, y: pixel.y }]);
         }
 
-        // Dessiner tous les points groupés par couleur
         for (const [color, pixels] of byColor) {
           ctx.fillStyle = color;
           ctx.globalAlpha = 0.75;
@@ -212,7 +288,6 @@ export default function CommuneLayer({
           }
           ctx.fill();
 
-          // Contour léger
           ctx.strokeStyle = color;
           ctx.globalAlpha = 0.3;
           ctx.lineWidth = 0.5;
@@ -234,7 +309,6 @@ export default function CommuneLayer({
     function onMouseMove(e: L.LeafletMouseEvent) {
       const latlng = e.latlng;
       const zoom = map.getZoom();
-      // Distance de recherche adaptative (plus petit quand on zoom)
       const searchDist = zoom >= 12 ? 0.005 : zoom >= 10 ? 0.02 : zoom >= 8 ? 0.05 : 0.15;
       const nearest = grid.findNearest(latlng.lat, latlng.lng, searchDist);
 
@@ -283,7 +357,7 @@ export default function CommuneLayer({
         tooltipRef.current = null;
       }
     };
-  }, [map, points, product]);
+  }, [map, points, hulls, product]);
 
   return null;
 }
