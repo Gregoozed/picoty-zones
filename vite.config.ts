@@ -2,10 +2,10 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
-  base: process.env.VITE_BASE_PATH || '/',
+  base: mode === 'preprod' ? '/zone-picoty/' : '/',
   json: {
     stringify: false,
   },
-})
+}))
