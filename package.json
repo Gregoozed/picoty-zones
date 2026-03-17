@@ -4,11 +4,11 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:client": "cd client && npm run dev",
-    "dev:server": "cd server && npm run dev",
-    "build": "cd client && npm run build",
-    "build:preprod": "cd client && npm run build:preprod",
-    "start": "cd server && npm start"
+    "dev:client": "cd front && npm run dev",
+    "dev:server": "cd back && npm run dev",
+    "build": "cd front && npm run build",
+    "build:preprod": "cd front && npm run build:preprod",
+    "start": "cd back && npm start"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
