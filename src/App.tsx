@@ -80,7 +80,13 @@ function App() {
 
   return (
     <div className="flex h-screen flex-col">
-      <Header />
+      <Header
+        hasData={hasData}
+        product={filters.product}
+        viewMode={filters.viewMode}
+        filiales={filters.filiales}
+        departements={filters.departements}
+      />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar gauche */}
