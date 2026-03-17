@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import type { FeatureCollection } from 'geojson';
 
 // Hooks
@@ -28,17 +28,21 @@ import FileUpload from './components/DataLoader/FileUpload';
 
 // Stats
 import QuickStats from './components/Stats/QuickStats';
+import NonDesserviesList from './components/Stats/NonDesserviesList';
 
 // GeoJSON statique
 import departementsGeo from './data/departements.json';
 import regionsGeo from './data/regions.json';
+
+// Utils
+import { getDesserviesSet, countNonDesservies } from './utils/aggregation';
 
 function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const reloadInputRef = useRef<HTMLInputElement>(null);
 
   // Données communes
-  const { communes, loading, error, sheetNames, loadFromFile } = useCommuneData();
+  const { communes, loading, error, sheetNames, lastUpdated, loadFromFile } = useCommuneData();
 
   // Filtres
   const {
@@ -49,6 +53,7 @@ function App() {
     deselectAllFiliales,
     setDepartements,
     setViewMode,
+    toggleNonDesservies,
     availableFiliales,
     availableDepartements,
   } = useFilters(communes);
@@ -66,6 +71,18 @@ function App() {
     communes,
     filters.product,
     filters.filiales
+  );
+
+  // Set des communes desservies (partagé)
+  const desserviesSet = useMemo(
+    () => getDesserviesSet(communes, filters.product),
+    [communes, filters.product]
+  );
+
+  // Nombre de communes non desservies
+  const nonDesserviesCount = useMemo(
+    () => countNonDesservies(desserviesSet, filters.departements),
+    [desserviesSet, filters.departements]
   );
 
   // Upload fichier
@@ -95,7 +112,7 @@ function App() {
           onToggle={() => setSidebarOpen((prev) => !prev)}
         >
           {/* Zone d'upload : grande si pas de données, compacte sinon */}
-          {!hasData ? (
+          {!hasData && !loading ? (
             <div className="mb-4">
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
                 Charger un fichier Excel
@@ -107,14 +124,14 @@ function App() {
                 error={error}
               />
             </div>
-          ) : (
+          ) : hasData ? (
             <div className="mb-4 rounded-md bg-green-50 border border-green-200 px-3 py-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-green-700">
                   <strong>{communes.length.toLocaleString('fr-FR')}</strong> communes chargées
                 </span>
                 <label className="cursor-pointer text-xs font-medium text-blue-600 hover:text-blue-800">
-                  Recharger
+                  Mettre à jour
                   <input
                     ref={reloadInputRef}
                     type="file"
@@ -127,6 +144,11 @@ function App() {
                   />
                 </label>
               </div>
+              {lastUpdated && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Dernière MAJ : {new Date(lastUpdated).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </p>
+              )}
               {sheetNames.length > 1 && (
                 <select
                   onChange={(e) => {
@@ -141,10 +163,10 @@ function App() {
                   ))}
                 </select>
               )}
-              {loading && <p className="mt-1 text-xs text-blue-600">Chargement...</p>}
+              {loading && <p className="mt-1 text-xs text-blue-600">Mise à jour...</p>}
               {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
             </div>
-          )}
+          ) : null}
 
           {/* Statistiques rapides */}
           {hasData && (
@@ -178,7 +200,21 @@ function App() {
               onDepartementsChange={setDepartements}
               viewMode={filters.viewMode}
               onViewModeChange={setViewMode}
+              showNonDesservies={filters.showNonDesservies}
+              onToggleNonDesservies={toggleNonDesservies}
+              nonDesserviesCount={nonDesserviesCount}
             />
+          )}
+
+          {/* Liste des communes non desservies */}
+          {hasData && filters.showNonDesservies && (
+            <div className="mt-4">
+              <NonDesserviesList
+                communes={communes}
+                product={filters.product}
+                selectedDepartements={filters.departements}
+              />
+            </div>
           )}
         </Sidebar>
 
@@ -221,6 +257,7 @@ function App() {
                 product={filters.product}
                 selectedFiliales={filters.filiales}
                 selectedDepartements={filters.departements}
+                showNonDesservies={filters.showNonDesservies}
               />
             )}
             {hasData && filters.viewMode !== 'commune' && (

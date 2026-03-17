@@ -5,7 +5,6 @@ import { aggregateByDepartment, aggregateByRegion } from '../utils/aggregation';
 interface UseDepartmentAggregationReturn {
   departmentAggregations: DepartmentAggregation[];
   regionAggregations: RegionAggregation[];
-  filteredCommunes: CommuneData[];
   totalCouvertes: number;
   totalCommunes: number;
 }
@@ -16,7 +15,8 @@ export function useDepartmentAggregation(
 ): UseDepartmentAggregationReturn {
   const filteredCommunes = useMemo(() => {
     if (filters.departements.length === 0) return communes;
-    return communes.filter(c => filters.departements.includes(c.departement));
+    const deptSet = new Set(filters.departements);
+    return communes.filter(c => deptSet.has(c.departement));
   }, [communes, filters.departements]);
 
   const departmentAggregations = useMemo(
@@ -29,24 +29,19 @@ export function useDepartmentAggregation(
     [filteredCommunes, filters.product, filters.filiales]
   );
 
-  const totalCouvertes = useMemo(() => {
-    if (filters.viewMode === 'region') {
-      return regionAggregations.reduce((sum, r) => sum + r.communesCouvertes, 0);
-    }
-    return departmentAggregations.reduce((sum, d) => sum + d.communesCouvertes, 0);
-  }, [departmentAggregations, regionAggregations, filters.viewMode]);
+  const totalCouvertes = useMemo(
+    () => departmentAggregations.reduce((sum, d) => sum + d.communesCouvertes, 0),
+    [departmentAggregations]
+  );
 
-  const totalCommunes = useMemo(() => {
-    if (filters.viewMode === 'region') {
-      return regionAggregations.reduce((sum, r) => sum + r.totalCommunes, 0);
-    }
-    return departmentAggregations.reduce((sum, d) => sum + d.totalCommunes, 0);
-  }, [departmentAggregations, regionAggregations, filters.viewMode]);
+  const totalCommunes = useMemo(
+    () => departmentAggregations.reduce((sum, d) => sum + d.totalCommunes, 0),
+    [departmentAggregations]
+  );
 
   return {
     departmentAggregations,
     regionAggregations,
-    filteredCommunes,
     totalCouvertes,
     totalCommunes,
   };

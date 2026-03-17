@@ -116,9 +116,10 @@ export function useFilialeCentroids(
     // Build a map: filiale -> count of communes (for the selected product)
     const filialeNbCommunes = new Map<string, number>();
 
+    const filialeSet = new Set(selectedFiliales);
     for (const commune of communes) {
       const filiale = commune.territoires[product];
-      if (!filiale || !selectedFiliales.includes(filiale)) continue;
+      if (!filiale || !filialeSet.has(filiale)) continue;
 
       const dept = commune.departement;
       if (!filialeDepts.has(filiale)) {

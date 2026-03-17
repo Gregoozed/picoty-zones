@@ -10,6 +10,7 @@ interface UseFiltersReturn {
   deselectAllFiliales: () => void;
   setDepartements: (departements: string[]) => void;
   setViewMode: (viewMode: 'departement' | 'region' | 'commune') => void;
+  toggleNonDesservies: () => void;
   availableFiliales: string[];
   availableDepartements: string[];
 }
@@ -20,6 +21,7 @@ export function useFilters(communes: CommuneData[]): UseFiltersReturn {
     filiales: [],
     departements: [],
     viewMode: 'departement',
+    showNonDesservies: false,
   });
 
   const availableFiliales = useMemo(
@@ -32,12 +34,15 @@ export function useFilters(communes: CommuneData[]): UseFiltersReturn {
     [communes]
   );
 
-  // When product changes, reset filiales to all available for that product
+  // When product changes, keep filiales that exist in the new product
   useEffect(() => {
-    setFilters(prev => ({
-      ...prev,
-      filiales: getFiliales(communes, prev.product),
-    }));
+    setFilters(prev => {
+      const available = getFiliales(communes, prev.product);
+      const availableSet = new Set(available);
+      const kept = prev.filiales.filter(f => availableSet.has(f));
+      // If none survived, select all (first load or total mismatch)
+      return { ...prev, filiales: kept.length > 0 ? kept : available };
+    });
   }, [communes, filters.product]);
 
   const setProduct = useCallback((product: ProductType) => {
@@ -70,6 +75,10 @@ export function useFilters(communes: CommuneData[]): UseFiltersReturn {
     setFilters(prev => ({ ...prev, viewMode }));
   }, []);
 
+  const toggleNonDesservies = useCallback(() => {
+    setFilters(prev => ({ ...prev, showNonDesservies: !prev.showNonDesservies }));
+  }, []);
+
   return {
     filters,
     setProduct,
@@ -78,6 +87,7 @@ export function useFilters(communes: CommuneData[]): UseFiltersReturn {
     deselectAllFiliales,
     setDepartements,
     setViewMode,
+    toggleNonDesservies,
     availableFiliales,
     availableDepartements,
   };

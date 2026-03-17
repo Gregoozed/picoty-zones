@@ -1,4 +1,47 @@
-import type { CommuneData, ProductType, DepartmentAggregation, RegionAggregation } from '../types';
+import type { CommuneData, CommuneRef, ProductType, DepartmentAggregation, RegionAggregation } from '../types';
+import { referentiel } from './referentiel';
+
+/** Set des codes INSEE desservis pour un produit */
+export function getDesserviesSet(communes: CommuneData[], product: ProductType): Set<string> {
+  const set = new Set<string>();
+  for (const c of communes) {
+    if (c.territoires[product]) set.add(c.codeInsee);
+  }
+  return set;
+}
+
+/** Communes non desservies (dans le référentiel mais pas dans l'Excel ou sans filiale pour le produit) */
+export function getNonDesservies(
+  desserviesSet: Set<string>,
+  selectedDepartements: string[]
+): { codeInsee: string; nom: string; cp: string; dep: string }[] {
+  const deptSet = selectedDepartements.length > 0 ? new Set(selectedDepartements) : null;
+  const result: { codeInsee: string; nom: string; cp: string; dep: string }[] = [];
+
+  for (const [codeInsee, ref] of Object.entries(referentiel)) {
+    if (desserviesSet.has(codeInsee)) continue;
+    if (deptSet && !deptSet.has(ref.dep)) continue;
+    result.push({ codeInsee, nom: ref.nom, cp: ref.cp || '', dep: ref.dep });
+  }
+
+  result.sort((a, b) => a.dep.localeCompare(b.dep) || a.nom.localeCompare(b.nom));
+  return result;
+}
+
+/** Nombre de communes non desservies */
+export function countNonDesservies(
+  desserviesSet: Set<string>,
+  selectedDepartements: string[]
+): number {
+  const deptSet = selectedDepartements.length > 0 ? new Set(selectedDepartements) : null;
+  let count = 0;
+  for (const [codeInsee, ref] of Object.entries(referentiel)) {
+    if (desserviesSet.has(codeInsee)) continue;
+    if (deptSet && !deptSet.has(ref.dep)) continue;
+    count++;
+  }
+  return count;
+}
 
 // Mapping département → région (codes INSEE)
 const DEPT_TO_REGION: Record<string, string> = {
@@ -34,7 +77,7 @@ export function aggregateByDepartment(
   product: ProductType,
   selectedFiliales: string[]
 ): DepartmentAggregation[] {
-  // Grouper par département
+  const filialeSet = new Set(selectedFiliales);
   const deptMap = new Map<string, CommuneData[]>();
   for (const commune of communes) {
     const dept = commune.departement;
@@ -47,13 +90,12 @@ export function aggregateByDepartment(
   const result: DepartmentAggregation[] = [];
 
   for (const [codeDept, deptCommunes] of deptMap) {
-    // Compter les filiales pour ce produit
     const filialeCounts = new Map<string, number>();
     let communesCouvertes = 0;
 
     for (const commune of deptCommunes) {
       const filiale = commune.territoires[product];
-      if (filiale && selectedFiliales.includes(filiale)) {
+      if (filiale && filialeSet.has(filiale)) {
         communesCouvertes++;
         filialeCounts.set(filiale, (filialeCounts.get(filiale) ?? 0) + 1);
       }
@@ -97,7 +139,7 @@ export function aggregateByRegion(
   product: ProductType,
   selectedFiliales: string[]
 ): RegionAggregation[] {
-  // Grouper par région via le mapping dept → region
+  const filialeSet = new Set(selectedFiliales);
   const regionMap = new Map<string, CommuneData[]>();
 
   for (const commune of communes) {
@@ -116,7 +158,7 @@ export function aggregateByRegion(
 
     for (const commune of regionCommunes) {
       const filiale = commune.territoires[product];
-      if (filiale && selectedFiliales.includes(filiale)) {
+      if (filiale && filialeSet.has(filiale)) {
         communesCouvertes++;
         filialeCounts.set(filiale, (filialeCounts.get(filiale) ?? 0) + 1);
       }

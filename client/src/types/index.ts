@@ -55,6 +55,16 @@ export interface FilterState {
   filiales: string[];
   departements: string[];
   viewMode: 'departement' | 'region' | 'commune';
+  showNonDesservies: boolean;
+}
+
+// Entrée du référentiel communes
+export interface CommuneRef {
+  nom: string;
+  cp: string;
+  dep: string;
+  lat: number;
+  lng: number;
 }
 
 // Centroïde de filiale

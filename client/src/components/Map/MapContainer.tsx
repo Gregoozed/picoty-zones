@@ -64,6 +64,14 @@ export default function MapContainerWrapper({ children, selectedDepartements }: 
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
+      {/* Limites administratives communales — IGN Géoplateforme */}
+      <TileLayer
+        url="https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&TILEMATRIXSET=PM&TILEMATRIX={z}&TILECOL={x}&TILEROW={y}&LAYER=LIMITES_ADMINISTRATIVES_EXPRESS.LATEST&FORMAT=image/png&STYLE=normal"
+        attribution="IGN-F/Géoportail"
+        minZoom={6}
+        maxZoom={16}
+        opacity={0.5}
+      />
       <ZoomHandler selectedDepartements={selectedDepartements} />
       {children}
     </LeafletMapContainer>

@@ -8,6 +8,7 @@ interface FilterPanelProps {
   totalCommunes: number;
   totalCouvertes: number;
   filialesCount: number;
+  nonDesserviesCount: number;
   /* Product */
   product: ProductType;
   onProductChange: (product: ProductType) => void;
@@ -23,12 +24,16 @@ interface FilterPanelProps {
   onDepartementsChange: (depts: string[]) => void;
   viewMode: 'departement' | 'region' | 'commune';
   onViewModeChange: (mode: 'departement' | 'region' | 'commune') => void;
+  /* Non desservies */
+  showNonDesservies: boolean;
+  onToggleNonDesservies: () => void;
 }
 
 export default function FilterPanel({
   totalCommunes,
   totalCouvertes,
   filialesCount,
+  nonDesserviesCount,
   product,
   onProductChange,
   filiales,
@@ -41,6 +46,8 @@ export default function FilterPanel({
   onDepartementsChange,
   viewMode,
   onViewModeChange,
+  showNonDesservies,
+  onToggleNonDesservies,
 }: FilterPanelProps) {
   return (
     <div className="space-y-5">
@@ -90,6 +97,27 @@ export default function FilterPanel({
           viewMode={viewMode}
           onViewModeChange={onViewModeChange}
         />
+      </section>
+
+      {/* Non desservies toggle */}
+      <section>
+        <label className="flex items-center gap-2 cursor-pointer rounded-md border border-gray-200 bg-gray-50 px-3 py-2 hover:bg-gray-100 transition-colors">
+          <input
+            type="checkbox"
+            checked={showNonDesservies}
+            onChange={onToggleNonDesservies}
+            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div className="flex-1 min-w-0">
+            <span className="text-sm font-medium text-gray-700">
+              Communes non desservies
+            </span>
+            <span className="ml-1.5 text-xs text-gray-400">
+              ({nonDesserviesCount.toLocaleString('fr-FR')})
+            </span>
+          </div>
+          <span className="inline-block text-red-600 font-bold text-sm leading-none flex-shrink-0">✕</span>
+        </label>
       </section>
     </div>
   );

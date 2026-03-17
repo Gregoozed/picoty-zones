@@ -8,4 +8,9 @@ export default defineConfig(({ mode }) => ({
   json: {
     stringify: false,
   },
+  server: {
+    proxy: {
+      '/api': 'http://localhost:3001',
+    },
+  },
 }))

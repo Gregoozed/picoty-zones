@@ -4,15 +4,14 @@ import L from 'leaflet';
 import type { CommuneData, ProductType } from '../../types';
 import { PRODUCT_LABELS } from '../../types';
 import { getFilialeColor } from '../../utils/colors';
-import communeCoords from '../../data/communes-geo.json';
-
-const coords = communeCoords as unknown as Record<string, [number, number]>;
+import { referentiel } from '../../utils/referentiel';
 
 interface CommuneLayerProps {
   communes: CommuneData[];
   product: ProductType;
   selectedFiliales: string[];
   selectedDepartements: string[];
+  showNonDesservies: boolean;
 }
 
 // Point pré-calculé pour le rendu canvas
@@ -23,7 +22,8 @@ interface RenderPoint {
   nom: string;
   codePostal: string;
   departement: string;
-  filiale: string;
+  filiale: string; // "" pour les non desservies
+  isNonDesservie: boolean;
 }
 
 // Index spatial simple (grille) pour la recherche par proximité
@@ -82,7 +82,6 @@ function convexHull(pts: { lat: number; lng: number }[]): { lat: number; lng: nu
   const cross = (o: { lat: number; lng: number }, a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
     (a.lng - o.lng) * (b.lat - o.lat) - (a.lat - o.lat) * (b.lng - o.lng);
 
-  // Lower hull
   const lower: { lat: number; lng: number }[] = [];
   for (const p of sorted) {
     while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
@@ -91,7 +90,6 @@ function convexHull(pts: { lat: number; lng: number }[]): { lat: number; lng: nu
     lower.push(p);
   }
 
-  // Upper hull
   const upper: { lat: number; lng: number }[] = [];
   for (let i = sorted.length - 1; i >= 0; i--) {
     const p = sorted[i];
@@ -101,7 +99,6 @@ function convexHull(pts: { lat: number; lng: number }[]): { lat: number; lng: nu
     upper.push(p);
   }
 
-  // Remove last point of each half (duplicate of the other)
   lower.pop();
   upper.pop();
 
@@ -110,7 +107,7 @@ function convexHull(pts: { lat: number; lng: number }[]): { lat: number; lng: nu
 
 /**
  * Couche Canvas haute performance pour afficher les communes.
- * - Points colorés par filiale
+ * - Points colorés par filiale + points gris pour les non desservies
  * - Enveloppes convexes pour délimiter les zones de chaque filiale
  * - Index spatial pour tooltip au survol
  */
@@ -119,13 +116,25 @@ export default function CommuneLayer({
   product,
   selectedFiliales,
   selectedDepartements,
+  showNonDesservies,
 }: CommuneLayerProps) {
   const map = useMap();
   const canvasLayerRef = useRef<L.Layer | null>(null);
   const tooltipRef = useRef<L.Tooltip | null>(null);
   const gridRef = useRef(new SpatialGrid(0.3));
 
-  // Pré-calculer les points à rendre
+  // Set des codes INSEE desservis pour le produit courant
+  const desserviesSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of communes) {
+      if (c.territoires[product]) {
+        set.add(c.codeInsee);
+      }
+    }
+    return set;
+  }, [communes, product]);
+
+  // Points desservis (colorés)
   const points = useMemo(() => {
     const result: RenderPoint[] = [];
     const filialeSet = new Set(selectedFiliales);
@@ -135,23 +144,53 @@ export default function CommuneLayer({
       if (deptSet && !deptSet.has(c.departement)) continue;
       const filiale = c.territoires[product];
       if (!filiale || !filialeSet.has(filiale)) continue;
-      const latlng = coords[c.codeInsee];
-      if (!latlng) continue;
+      const ref = referentiel[c.codeInsee];
+      if (!ref) continue;
 
       result.push({
-        lat: latlng[0],
-        lng: latlng[1],
+        lat: ref.lat,
+        lng: ref.lng,
         color: getFilialeColor(filiale),
-        nom: c.nom,
-        codePostal: c.codePostal,
-        departement: c.departement,
+        nom: c.nom || ref.nom,
+        codePostal: c.codePostal || ref.cp,
+        departement: c.departement || ref.dep,
         filiale,
+        isNonDesservie: false,
       });
     }
     return result;
   }, [communes, product, selectedFiliales, selectedDepartements]);
 
-  // Pré-calculer les enveloppes convexes par filiale
+  // Points non desservis (gris)
+  const nonDesserviesPoints = useMemo(() => {
+    if (!showNonDesservies) return [];
+
+    const result: RenderPoint[] = [];
+    const deptSet = selectedDepartements.length > 0 ? new Set(selectedDepartements) : null;
+
+    for (const [codeInsee, ref] of Object.entries(referentiel)) {
+      if (desserviesSet.has(codeInsee)) continue;
+      if (deptSet && !deptSet.has(ref.dep)) continue;
+      if (!ref.lat || !ref.lng) continue;
+
+      result.push({
+        lat: ref.lat,
+        lng: ref.lng,
+        color: '#BBBBBB',
+        nom: ref.nom,
+        codePostal: ref.cp || '',
+        departement: ref.dep,
+        filiale: '',
+        isNonDesservie: true,
+      });
+    }
+    return result;
+  }, [showNonDesservies, desserviesSet, selectedDepartements]);
+
+  // Tous les points combinés pour le spatial grid
+  const allPoints = useMemo(() => [...nonDesserviesPoints, ...points], [points, nonDesserviesPoints]);
+
+  // Enveloppes convexes par filiale (seulement les points desservis)
   const hulls = useMemo(() => {
     const byFiliale = new Map<string, { lat: number; lng: number; color: string }[]>();
     for (const p of points) {
@@ -170,7 +209,6 @@ export default function CommuneLayer({
   }, [points]);
 
   useEffect(() => {
-    // Nettoyer la couche précédente
     if (canvasLayerRef.current) {
       map.removeLayer(canvasLayerRef.current);
     }
@@ -179,14 +217,13 @@ export default function CommuneLayer({
       tooltipRef.current = null;
     }
 
-    // Construire l'index spatial
+    // Construire l'index spatial avec tous les points
     const grid = gridRef.current;
     grid.clear();
-    for (const p of points) {
+    for (const p of allPoints) {
       grid.add(p);
     }
 
-    // Créer un custom canvas layer
     const CanvasLayer = L.Layer.extend({
       onAdd(m: L.Map) {
         this._map = m;
@@ -238,13 +275,12 @@ export default function CommuneLayer({
         const bounds = m.getBounds();
         const zoom = m.getZoom();
 
-        // 1) Dessiner les enveloppes convexes (zones) en arrière-plan
+        // 1) Dessiner les enveloppes convexes en arrière-plan
         for (const { color, hull } of hulls) {
           if (hull.length < 3) continue;
 
           const pixels = hull.map(p => m.latLngToContainerPoint([p.lat, p.lng]));
 
-          // Remplissage semi-transparent
           ctx.beginPath();
           ctx.moveTo(pixels[0].x, pixels[0].y);
           for (let i = 1; i < pixels.length; i++) {
@@ -255,7 +291,6 @@ export default function CommuneLayer({
           ctx.globalAlpha = 0.08;
           ctx.fill();
 
-          // Bordure
           ctx.strokeStyle = color;
           ctx.globalAlpha = 0.5;
           ctx.lineWidth = 2;
@@ -264,7 +299,32 @@ export default function CommuneLayer({
           ctx.setLineDash([]);
         }
 
-        // 2) Dessiner les points par-dessus
+        // 2) Dessiner les communes non desservies (croix rouges)
+        if (nonDesserviesPoints.length > 0) {
+          const crossSize = zoom >= 11 ? 4 : zoom >= 9 ? 3 : zoom >= 7 ? 2.5 : 1.5;
+          ctx.strokeStyle = '#dc2626';
+          ctx.lineWidth = zoom >= 9 ? 1.5 : 1;
+          ctx.lineCap = 'round';
+          ctx.globalAlpha = 0.55;
+          ctx.beginPath();
+          for (const p of nonDesserviesPoints) {
+            if (p.lat < bounds.getSouth() || p.lat > bounds.getNorth()) continue;
+            if (p.lng < bounds.getWest() || p.lng > bounds.getEast()) continue;
+
+            const pixel = m.latLngToContainerPoint([p.lat, p.lng]);
+            const x = pixel.x;
+            const y = pixel.y;
+            // Diagonale \
+            ctx.moveTo(x - crossSize, y - crossSize);
+            ctx.lineTo(x + crossSize, y + crossSize);
+            // Diagonale /
+            ctx.moveTo(x + crossSize, y - crossSize);
+            ctx.lineTo(x - crossSize, y + crossSize);
+          }
+          ctx.stroke();
+        }
+
+        // 3) Dessiner les points desservis par-dessus
         const radius = zoom >= 11 ? 5 : zoom >= 9 ? 4 : zoom >= 7 ? 3 : 2;
         const byColor = new Map<string, { x: number; y: number }[]>();
 
@@ -302,7 +362,7 @@ export default function CommuneLayer({
     layer.addTo(map);
     canvasLayerRef.current = layer;
 
-    // Tooltip lazy au survol de la carte
+    // Tooltip au survol
     const tooltip = L.tooltip({ sticky: true, direction: 'top', offset: [0, -10] });
     tooltipRef.current = tooltip;
 
@@ -314,18 +374,34 @@ export default function CommuneLayer({
 
       if (nearest) {
         tooltip.setLatLng([nearest.lat, nearest.lng]);
-        tooltip.setContent(
-          `<div style="min-width:150px;">` +
-            `<strong>${nearest.nom}</strong><br/>` +
-            `<span style="font-size:11px;color:#666;">` +
-              `${nearest.codePostal} — Dpt ${nearest.departement}` +
-            `</span><br/>` +
-            `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;` +
-              `background:${nearest.color};margin-right:4px;vertical-align:middle;"></span>` +
-            `<span style="font-size:11px;">${nearest.filiale}</span><br/>` +
-            `<span style="font-size:10px;color:#999;">${PRODUCT_LABELS[product]}</span>` +
-          `</div>`
-        );
+
+        if (nearest.isNonDesservie) {
+          tooltip.setContent(
+            `<div style="min-width:150px;">` +
+              `<strong>${nearest.nom}</strong><br/>` +
+              `<span style="font-size:11px;color:#666;">` +
+                `${nearest.codePostal} — Dpt ${nearest.departement}` +
+              `</span><br/>` +
+              `<span style="display:inline-block;font-size:12px;color:#dc2626;margin-right:4px;font-weight:bold;vertical-align:middle;">✕</span>` +
+              `<span style="font-size:11px;color:#dc2626;font-style:italic;">Non desservie</span><br/>` +
+              `<span style="font-size:10px;color:#999;">${PRODUCT_LABELS[product]}</span>` +
+            `</div>`
+          );
+        } else {
+          tooltip.setContent(
+            `<div style="min-width:150px;">` +
+              `<strong>${nearest.nom}</strong><br/>` +
+              `<span style="font-size:11px;color:#666;">` +
+                `${nearest.codePostal} — Dpt ${nearest.departement}` +
+              `</span><br/>` +
+              `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;` +
+                `background:${nearest.color};margin-right:4px;vertical-align:middle;"></span>` +
+              `<span style="font-size:11px;">${nearest.filiale}</span><br/>` +
+              `<span style="font-size:10px;color:#999;">${PRODUCT_LABELS[product]}</span>` +
+            `</div>`
+          );
+        }
+
         if (!map.hasLayer(tooltip)) {
           tooltip.addTo(map);
         }
@@ -357,7 +433,7 @@ export default function CommuneLayer({
         tooltipRef.current = null;
       }
     };
-  }, [map, points, hulls, product]);
+  }, [map, points, nonDesserviesPoints, allPoints, hulls, product]);
 
   return null;
 }
